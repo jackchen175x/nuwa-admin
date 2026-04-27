@@ -159,3 +159,88 @@ with st.expander("📋 Diff 预览（vs 服务端）", expanded=dirty):
         st.code(diff_text, language="diff")
     else:
         st.caption("无改动")
+
+
+# ---- nuwa-skills 仓库 git 状态 + 一键 commit + push ----
+
+st.divider()
+st.subheader("🌿 nuwa-skills git 状态")
+
+
+def _git_status() -> dict | None:
+    try:
+        resp = httpx.get(f"{runtime_url}/admin/skills/git/status", headers=_headers(), timeout=10)
+        resp.raise_for_status()
+        return resp.json()
+    except httpx.HTTPStatusError as e:
+        st.error(f"git status → {e.response.status_code}: {e.response.text}")
+    except httpx.HTTPError as e:
+        st.error(f"git status 失败：{e}")
+    return None
+
+
+def _git_commit(message: str, author_name: str, author_email: str, push: bool) -> dict | None:
+    try:
+        resp = httpx.post(
+            f"{runtime_url}/admin/skills/git/commit",
+            headers={**_headers(), "Content-Type": "application/json"},
+            json={
+                "message": message,
+                "author_name": author_name,
+                "author_email": author_email,
+                "push": push,
+            },
+            timeout=60,
+        )
+        resp.raise_for_status()
+        return resp.json()
+    except httpx.HTTPStatusError as e:
+        st.error(f"git commit → {e.response.status_code}: {e.response.text}")
+    except httpx.HTTPError as e:
+        st.error(f"git commit 失败：{e}")
+    return None
+
+
+git_status = _git_status()
+if git_status is not None:
+    cols = st.columns(4)
+    cols[0].metric("分支", git_status["branch"])
+    cols[1].metric("脏文件", len(git_status["dirty_files"]))
+    cols[2].metric("未推送 commit", git_status["ahead"])
+    cols[3].metric("落后远端", git_status["behind"])
+
+    if git_status["dirty_files"]:
+        with st.expander(f"📝 待提交的文件（{len(git_status['dirty_files'])}）", expanded=True):
+            for fname in git_status["dirty_files"]:
+                st.code(fname, language="text")
+
+    needs_commit = bool(git_status["dirty_files"])
+    needs_push = git_status["ahead"] > 0
+
+    if needs_commit or needs_push:
+        with st.form("git_commit_form", border=True):
+            st.markdown("**老师 review 完成后用这里同步到 nuwa-skills 仓库：**")
+            default_msg = f"skill update via admin ({len(git_status['dirty_files'])} files)" if needs_commit else "push pending commits"
+            commit_msg = st.text_input("Commit message", value=default_msg)
+            author_name = st.text_input("Author name", value="nuwa-admin")
+            author_email = st.text_input("Author email", value="admin@nuwa.local")
+            do_push = st.checkbox("同时推送到 origin", value=True)
+            submitted = st.form_submit_button("🚀 Commit + Push", type="primary")
+        if submitted:
+            with st.spinner("git add / commit / push…"):
+                result = _git_commit(commit_msg, author_name, author_email, do_push)
+            if result:
+                if result.get("push_error"):
+                    st.warning(
+                        f"✅ commit ok（{result['sha'][:8]}）但 push 失败：{result['push_error']}"
+                    )
+                elif result["committed"]:
+                    msg = f"✅ commit {result['sha'][:8]}"
+                    if result["pushed"]:
+                        msg += " + pushed"
+                    st.success(msg)
+                else:
+                    st.info("没有改动可提交")
+                st.rerun()
+    else:
+        st.success("✅ 工作树干净，已与远端同步")
