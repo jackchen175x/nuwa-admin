@@ -1,3 +1,13 @@
+"""女娲底座管理面板入口（Phase 0 — Streamlit）。
+
+多页结构由 `pages/` 目录自动注册。本文件只做欢迎 + 状态总览：
+- runtime URL 配置（env: NUWA_RUNTIME_URL）
+- 健康/就绪检查实时显示
+- admin token（env: NUWA_ADMIN_TOKEN，dev 用 sidebar 输入兜底）
+
+进入 Playground / Skill Editor 走 sidebar 自动菜单。
+"""
+
 import os
 
 import httpx
@@ -5,61 +15,72 @@ import streamlit as st
 
 RUNTIME_URL = os.getenv("NUWA_RUNTIME_URL", "http://localhost:8000")
 
-PERSONAS = ["changqing", "zhouzi"]
-MODELS = [
-    "doubao-seed-2-0-pro-260215",
-    "claude-opus-4-6",
-    "claude-sonnet-4-6",
-]
-
-st.set_page_config(page_title="女娲 Admin (PoC)", page_icon="🪡")
+st.set_page_config(page_title="女娲 Admin (PoC)", page_icon="🪡", layout="wide")
+st.title("🪡 女娲底座管理面板")
+st.caption("Phase 0 — Streamlit PoC。Phase 1 起切 Next.js。")
 
 with st.sidebar:
     st.header("配置")
-    persona = st.selectbox("Persona", PERSONAS, index=0)
-    model = st.selectbox("Model", MODELS, index=0)
-    temperature = st.slider("Temperature", 0.0, 2.0, 0.7, 0.1)
-    user_id = st.text_input("user_id", value="admin-poc")
-    if st.button("清空对话"):
-        st.session_state.pop("messages", None)
-        st.rerun()
-    st.caption(f"Runtime: {RUNTIME_URL}")
+    st.text_input(
+        "Runtime URL",
+        value=RUNTIME_URL,
+        key="runtime_url",
+        help="覆盖默认请用 NUWA_RUNTIME_URL env var。",
+    )
+    default_token = os.getenv("NUWA_ADMIN_TOKEN", "")
+    st.text_input(
+        "Admin Token",
+        value=default_token,
+        type="password",
+        key="admin_token",
+        help="留空走 NUWA_ADMIN_TOKEN env var。",
+    )
 
-st.title("🪡 女娲底座 · Playground")
-st.caption(f"persona={persona}  model={model}  T={temperature}")
+st.subheader("状态")
+col1, col2 = st.columns(2)
 
-if "messages" not in st.session_state:
-    st.session_state.messages = []
 
-for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
+def _runtime_url() -> str:
+    return st.session_state.get("runtime_url") or RUNTIME_URL
 
-if user_msg := st.chat_input("跟老师聊点什么……"):
-    st.session_state.messages.append({"role": "user", "content": user_msg})
-    with st.chat_message("user"):
-        st.markdown(user_msg)
 
-    payload = {
-        "persona_id": persona,
-        "user_id": user_id,
-        "messages": st.session_state.messages,
-        "model_override": model,
-        "temperature": temperature,
-    }
-    with st.chat_message("assistant"):
-        with st.spinner("思考中…"):
-            try:
-                resp = httpx.post(f"{RUNTIME_URL}/v1/chat", json=payload, timeout=120)
-                resp.raise_for_status()
-                data = resp.json()
-                content = data["content"]
-                st.markdown(content)
-                st.caption(f"trace_id={data.get('trace_id')}  model={data.get('model_id')}")
-            except httpx.HTTPStatusError as e:
-                content = f"❌ runtime {e.response.status_code}: {e.response.text}"
-                st.error(content)
-            except Exception as e:
-                content = f"❌ 调用失败: {e}"
-                st.error(content)
-    st.session_state.messages.append({"role": "assistant", "content": content})
+def _ping(path: str) -> tuple[int | None, str]:
+    try:
+        resp = httpx.get(f"{_runtime_url()}{path}", timeout=5)
+        return resp.status_code, resp.text[:200]
+    except httpx.HTTPError as e:
+        return None, str(e)
+
+
+with col1:
+    code, body = _ping("/healthz")
+    if code == 200:
+        st.success(f"✅ /healthz {code}")
+    else:
+        st.error(f"❌ /healthz {code or 'no response'}\n\n{body}")
+
+with col2:
+    code, body = _ping("/readyz")
+    if code == 200:
+        st.success(f"✅ /readyz {code}")
+    else:
+        st.error(f"❌ /readyz {code or 'no response'}\n\n{body}")
+
+st.divider()
+st.markdown(
+    """
+    ### 怎么用
+
+    左边栏选页面：
+
+    - **Playground** — 跟老师对话、切模型/温度
+    - **Skill Editor** — 在线改 SKILL.md，立即生效（hot reload）
+
+    ### 老师 Review 流程
+
+    1. 在 Skill Editor 页编辑 SKILL.md → 「保存草稿」（写到本地文件 + git 提交）
+    2. push 到 `nuwa-skills` 仓库（CI 会跑 `scripts/check_skills.py`）
+    3. 4 人飞书 review：陈根 + 老板 + 老师本人 + 1 位测试同事
+    4. 老板 + 至少 1 位老师 ack 后，merge 到 main → 生产环境再 reload
+    """
+)
