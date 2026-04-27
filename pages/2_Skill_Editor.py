@@ -7,12 +7,29 @@
 
 保存即落盘 + 清缓存（runtime 端 load_skill.cache_clear()），下一次 chat 立即生效。
 本页面不做 git commit；老师 review 流程在 nuwa-skills 仓库 push 时跑 lint hook。
+
+保存前显示 unified diff 给老师看"我改了啥"。
 """
 
+import difflib
 import os
 
 import httpx
 import streamlit as st
+
+
+def render_unified_diff(server_content: str, edited_content: str, label: str) -> str:
+    """生成 unified diff 字符串。空字符串表示无差异。"""
+    if server_content == edited_content:
+        return ""
+    diff_lines = difflib.unified_diff(
+        server_content.splitlines(keepends=True),
+        edited_content.splitlines(keepends=True),
+        fromfile=f"{label} (server)",
+        tofile=f"{label} (editing)",
+        lineterm="",
+    )
+    return "".join(diff_lines)
 
 DEFAULT_RUNTIME_URL = os.getenv("NUWA_RUNTIME_URL", "http://localhost:8000")
 
@@ -112,23 +129,33 @@ edited = st.text_area(
 )
 st.caption(f"长度: {len(edited)} 字符")
 
-col_save, col_reset, col_diff = st.columns([1, 1, 4])
+server_content = st.session_state[content_key]
+diff_text = render_unified_diff(server_content, edited, label=skill_path)
+dirty = bool(diff_text)
+
+col_save, col_reset, col_status = st.columns([1, 1, 4])
 with col_save:
-    if st.button("💾 保存（热更新）", type="primary"):
+    if st.button("💾 保存（热更新）", type="primary", disabled=not dirty):
         if _put_skill(selected, edited):
             st.session_state[content_key] = edited
             st.success("✅ 已保存并 hot reload。下一次 chat 立即生效。")
         else:
             st.error("保存失败。")
 with col_reset:
-    if st.button("↩️ 重置"):
-        # 强制重新 GET
+    if st.button("↩️ 重置", disabled=not dirty):
         for k in (load_key, content_key):
             st.session_state.pop(k, None)
         st.rerun()
-with col_diff:
-    dirty = edited != st.session_state[content_key]
+with col_status:
     if dirty:
-        st.warning("有未保存改动")
+        added = sum(1 for ln in diff_text.splitlines() if ln.startswith("+") and not ln.startswith("+++"))
+        removed = sum(1 for ln in diff_text.splitlines() if ln.startswith("-") and not ln.startswith("---"))
+        st.warning(f"有未保存改动：+{added} / -{removed} 行")
     else:
         st.info("内容与服务端一致")
+
+with st.expander("📋 Diff 预览（vs 服务端）", expanded=dirty):
+    if dirty:
+        st.code(diff_text, language="diff")
+    else:
+        st.caption("无改动")
