@@ -1,86 +1,132 @@
-"""女娲底座管理面板入口（Phase 0 — Streamlit）。
-
-多页结构由 `pages/` 目录自动注册。本文件只做欢迎 + 状态总览：
-- runtime URL 配置（env: NUWA_RUNTIME_URL）
-- 健康/就绪检查实时显示
-- admin token（env: NUWA_ADMIN_TOKEN，dev 用 sidebar 输入兜底）
-
-进入 Playground / Skill Editor 走 sidebar 自动菜单。
-"""
-
-import os
+from __future__ import annotations
 
 import httpx
+import pandas as pd
 import streamlit as st
 
-RUNTIME_URL = os.getenv("NUWA_RUNTIME_URL", "http://localhost:8000")
-
-st.set_page_config(page_title="女娲 Admin (PoC)", page_icon="🪡", layout="wide")
-st.title("🪡 女娲底座管理面板")
-st.caption("Phase 0 — Streamlit PoC。Phase 1 起切 Next.js。")
-
-with st.sidebar:
-    st.header("配置")
-    st.text_input(
-        "Runtime URL",
-        value=RUNTIME_URL,
-        key="runtime_url",
-        help="覆盖默认请用 NUWA_RUNTIME_URL env var。",
-    )
-    default_token = os.getenv("NUWA_ADMIN_TOKEN", "")
-    st.text_input(
-        "Admin Token",
-        value=default_token,
-        type="password",
-        key="admin_token",
-        help="留空走 NUWA_ADMIN_TOKEN env var。",
-    )
-
-st.subheader("状态")
-col1, col2 = st.columns(2)
-
-
-def _runtime_url() -> str:
-    return st.session_state.get("runtime_url") or RUNTIME_URL
-
-
-def _ping(path: str) -> tuple[int | None, str]:
-    try:
-        resp = httpx.get(f"{_runtime_url()}{path}", timeout=5)
-        return resp.status_code, resp.text[:200]
-    except httpx.HTTPError as e:
-        return None, str(e)
-
-
-with col1:
-    code, body = _ping("/healthz")
-    if code == 200:
-        st.success(f"✅ /healthz {code}")
-    else:
-        st.error(f"❌ /healthz {code or 'no response'}\n\n{body}")
-
-with col2:
-    code, body = _ping("/readyz")
-    if code == 200:
-        st.success(f"✅ /readyz {code}")
-    else:
-        st.error(f"❌ /readyz {code or 'no response'}\n\n{body}")
-
-st.divider()
-st.markdown(
-    """
-    ### 怎么用
-
-    左边栏选页面：
-
-    - **Playground** — 跟老师对话、切模型/温度
-    - **Skill Editor** — 在线改 SKILL.md，立即生效（hot reload）
-
-    ### 老师 Review 流程
-
-    1. 在 Skill Editor 页编辑 SKILL.md → 「保存草稿」（写到本地文件 + git 提交）
-    2. push 到 `nuwa-skills` 仓库（CI 会跑 `scripts/check_skills.py`）
-    3. 4 人飞书 review：陈根 + 老板 + 老师本人 + 1 位测试同事
-    4. 老板 + 至少 1 位老师 ack 后，merge 到 main → 生产环境再 reload
-    """
+from admin_ui import (
+    compact_error,
+    model_label,
+    persona_label,
+    request_json,
+    runtime_url,
+    section,
+    setup_page,
+    status_chip,
 )
+
+
+setup_page("总览", "运行状态、老师配置、仓库同步")
+
+
+def ping(path: str) -> tuple[int | None, dict | str]:
+    try:
+        resp = httpx.get(f"{runtime_url()}{path}", timeout=5)
+        try:
+            body: dict | str = resp.json()
+        except ValueError:
+            body = resp.text[:500]
+        return resp.status_code, body
+    except httpx.HTTPError as exc:
+        return None, str(exc)
+
+
+health_code, health_body = ping("/healthz")
+ready_code, ready_body = ping("/readyz")
+
+personas: list[dict] = []
+git_status: dict | None = None
+admin_error = ""
+
+try:
+    personas = request_json("GET", "/admin/personas", admin=True)
+except Exception as exc:
+    admin_error = compact_error(exc)
+
+try:
+    git_status = request_json("GET", "/admin/skills/git/status", admin=True)
+except Exception:
+    git_status = None
+
+cols = st.columns(4)
+cols[0].metric("API 存活", "正常" if health_code == 200 else "异常", f"HTTP {health_code or '-'}")
+
+ready_ok = isinstance(ready_body, dict) and ready_body.get("ready") is True
+cols[1].metric("服务就绪", "就绪" if ready_ok else "未就绪", f"HTTP {ready_code or '-'}")
+
+cols[2].metric("老师数量", len(personas) if personas else "-", "管理接口")
+
+if git_status:
+    dirty_count = len(git_status.get("dirty_files") or [])
+    sync_text = "干净" if git_status.get("is_clean") and git_status.get("ahead") == 0 else "待同步"
+    cols[3].metric("Skill 仓库", sync_text, f"{dirty_count} 个改动")
+else:
+    cols[3].metric("Skill 仓库", "-", "未连接")
+
+section("服务状态")
+status_cols = st.columns([1, 1, 2])
+with status_cols[0]:
+    status_chip("healthz 正常" if health_code == 200 else "healthz 异常", "ok" if health_code == 200 else "bad")
+with status_cols[1]:
+    status_chip("readyz 就绪" if ready_ok else "readyz 未就绪", "ok" if ready_ok else "warn")
+with status_cols[2]:
+    st.caption(runtime_url())
+
+if isinstance(ready_body, dict) and ready_body.get("checks"):
+    checks = []
+    for name, item in ready_body["checks"].items():
+        checks.append(
+            {
+                "检查项": name,
+                "状态": "通过" if item.get("ok") else "失败",
+                "详情": item.get("detail", ""),
+            }
+        )
+    st.dataframe(pd.DataFrame(checks), use_container_width=True, hide_index=True)
+elif ready_body:
+    st.code(str(ready_body), language="text")
+
+if admin_error:
+    st.warning(f"Admin API 未连接：{admin_error}")
+
+section("老师配置")
+if personas:
+    persona_rows = [
+        {
+            "老师": persona_label(p["id"]),
+            "ID": p["id"],
+            "默认模型": model_label(p["default_model"]),
+            "温度": p["temperature"],
+            "最大输出": p["max_tokens"],
+            "Skill 文件": p["skill_path"],
+        }
+        for p in personas
+    ]
+    st.dataframe(pd.DataFrame(persona_rows), use_container_width=True, hide_index=True)
+else:
+    st.info("填入管理密钥后显示老师配置。")
+
+section("人格文件仓库")
+if git_status:
+    git_cols = st.columns(5)
+    git_cols[0].metric("分支", git_status.get("branch", "-"))
+    git_cols[1].metric("脏文件", len(git_status.get("dirty_files") or []))
+    git_cols[2].metric("未推送", git_status.get("ahead", 0))
+    git_cols[3].metric("落后远端", git_status.get("behind", 0))
+    git_cols[4].metric("远端", "已配置" if git_status.get("has_remote") else "未配置")
+    dirty_files = git_status.get("dirty_files") or []
+    if dirty_files:
+        with st.expander("待提交文件", expanded=True):
+            for name in dirty_files:
+                st.code(name, language="text")
+    elif git_status.get("ahead", 0) == 0:
+        st.success("人格文件仓库已同步。")
+else:
+    st.info("暂无仓库状态。")
+
+section("快捷入口")
+links = st.columns(4)
+links[0].page_link("pages/1_对话调试.py", label="对话调试")
+links[1].page_link("pages/2_人格配置.py", label="人格配置")
+links[2].page_link("pages/3_质量评测.py", label="质量评测")
+links[3].page_link("pages/4_用户记忆.py", label="用户记忆")

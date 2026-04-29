@@ -1,4 +1,4 @@
-# nuwa-admin (Streamlit Phase 0) production image
+# nuwa-admin production image
 # Build: docker build -t nuwa-admin:latest .
 
 # syntax=docker/dockerfile:1.7-labs
@@ -15,7 +15,8 @@ ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 PATH="/app/.venv/bin:$PATH"
 WORKDIR /app
 
 COPY --from=deps /app/.venv /app/.venv
-COPY pyproject.toml uv.lock README.md streamlit_app.py ./
+COPY pyproject.toml uv.lock README.md streamlit_app.py admin_ui.py ./
+COPY .streamlit .streamlit
 COPY pages pages
 
 # 项目本体（即 streamlit_app + pages，pyproject 标了 package=false 所以 sync 只校验依赖）

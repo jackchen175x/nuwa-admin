@@ -1,16 +1,22 @@
-# nuwa-admin (Phase 0 — Streamlit PoC)
+# nuwa-admin
 
-Week 1 临时管理面板：选 persona、切模型、调温度、跟老师对话。
+女娲管理后台，用于查看服务状态、测试老师回复、编辑人格文件、跑标准考卷和管理用户记忆。
 
-Week 2 起切 Next.js 14 + shadcn/ui，Streamlit 作为兜底。
+## 页面
+
+- 总览：服务状态、老师配置、人格文件仓库同步状态
+- 对话调试：按老师、模型、温度测试真实回复
+- 人格配置：在线编辑 `SKILL.md`，保存后热更新，并可提交推送到 `nuwa-skills`
+- 质量评测：跑单题、批量跑分、查看历史结果
+- 用户记忆：查询和清理指定用户的画像记忆
 
 ## 启动
 
 ```bash
-# 先启动 nuwa-runtime（默认 http://localhost:8000）
-# 然后：
 uv sync
+NUWA_RUNTIME_URL=https://api.nuwa.aizd.org \
+NUWA_ADMIN_TOKEN=你的管理密钥 \
 uv run streamlit run streamlit_app.py
 ```
 
-可通过环境变量 `NUWA_RUNTIME_URL` 覆盖默认 runtime 地址。
+默认服务地址是 `http://localhost:8000`，也可以在左侧栏临时修改。

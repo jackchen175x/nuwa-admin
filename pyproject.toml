@@ -1,7 +1,7 @@
 [project]
 name = "nuwa-admin"
 version = "0.1.0"
-description = "女娲底座管理面板 (Phase 0 - Streamlit PoC)"
+description = "女娲管理后台"
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.11"
