@@ -10,6 +10,34 @@ import streamlit as st
 
 DEFAULT_RUNTIME_URL = os.getenv("NUWA_RUNTIME_URL", "http://localhost:8000")
 
+API_BASE_URL = "https://api.nuwa.aizd.org"
+ADMIN_URL = "https://admin.nuwa.aizd.org"
+
+NAV_GROUPS = [
+    (
+        "工作台",
+        [
+            ("总览", "streamlit_app.py"),
+        ],
+    ),
+    (
+        "构建",
+        [
+            ("搭建调试", "pages/1_搭建调试.py"),
+            ("人格工坊", "pages/2_人格工坊.py"),
+        ],
+    ),
+    (
+        "运营",
+        [
+            ("观测中心", "pages/3_观测中心.py"),
+            ("质量评测", "pages/4_质量评测.py"),
+            ("用户记忆", "pages/5_用户记忆.py"),
+            ("发布中心", "pages/6_发布中心.py"),
+        ],
+    ),
+]
+
 PERSONA_LABELS = {
     "changqing": "长卿老师",
     "zhouzi": "周子老师",
@@ -51,12 +79,13 @@ def inject_css() -> None:
         """
         <style>
         :root {
-            --nuwa-bg: #f6f7f9;
+            --nuwa-bg: #f5f7fb;
             --nuwa-surface: #ffffff;
             --nuwa-border: #d7dde5;
             --nuwa-text: #172033;
             --nuwa-muted: #667085;
-            --nuwa-accent: #0f766e;
+            --nuwa-accent: #2563eb;
+            --nuwa-accent-2: #0f766e;
             --nuwa-warn: #b54708;
             --nuwa-danger: #b42318;
         }
@@ -69,7 +98,8 @@ def inject_css() -> None:
             padding-bottom: 3rem;
         }
         [data-testid="stSidebar"] {
-            background: #111827;
+            background: #0b1020;
+            border-right: 1px solid #1f2937;
         }
         [data-testid="stSidebar"] * {
             color: #eef2f7;
@@ -80,6 +110,10 @@ def inject_css() -> None:
         h1, h2, h3 {
             color: var(--nuwa-text);
             letter-spacing: 0;
+        }
+        h1 {
+            font-size: 2rem;
+            line-height: 1.2;
         }
         div[data-testid="stMetric"] {
             background: var(--nuwa-surface);
@@ -139,6 +173,83 @@ def inject_css() -> None:
             font-size: 0.9rem;
             font-weight: 700;
         }
+        .nuwa-hero {
+            border: 1px solid var(--nuwa-border);
+            border-radius: 8px;
+            background: linear-gradient(135deg, #ffffff 0%, #eef5ff 48%, #f3fbf8 100%);
+            padding: 1.1rem 1.25rem;
+            margin: 0.7rem 0 1rem;
+        }
+        .nuwa-hero h3 {
+            margin: 0 0 0.35rem;
+            font-size: 1.12rem;
+        }
+        .nuwa-hero p {
+            margin: 0;
+            color: var(--nuwa-muted);
+        }
+        .nuwa-card-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 0.8rem;
+            margin: 0.55rem 0 0.8rem;
+        }
+        .nuwa-card {
+            border: 1px solid var(--nuwa-border);
+            border-radius: 8px;
+            background: var(--nuwa-surface);
+            padding: 0.95rem;
+            min-height: 122px;
+        }
+        .nuwa-card-title {
+            color: var(--nuwa-text);
+            font-size: 0.98rem;
+            font-weight: 800;
+            margin-bottom: 0.32rem;
+        }
+        .nuwa-card-body {
+            color: var(--nuwa-muted);
+            font-size: 0.88rem;
+            line-height: 1.45;
+        }
+        .nuwa-card-badge {
+            display: inline-flex;
+            margin-bottom: 0.55rem;
+            padding: 0.16rem 0.48rem;
+            border-radius: 999px;
+            background: #eff6ff;
+            color: #1d4ed8;
+            border: 1px solid #bfdbfe;
+            font-size: 0.78rem;
+            font-weight: 700;
+        }
+        .nuwa-flow {
+            display: grid;
+            grid-template-columns: repeat(5, minmax(0, 1fr));
+            gap: 0.55rem;
+            margin: 0.6rem 0 0.9rem;
+        }
+        .nuwa-flow-step {
+            background: var(--nuwa-surface);
+            border: 1px solid var(--nuwa-border);
+            border-radius: 8px;
+            padding: 0.72rem 0.8rem;
+        }
+        .nuwa-flow-step strong {
+            display: block;
+            color: var(--nuwa-text);
+            margin-bottom: 0.18rem;
+        }
+        .nuwa-flow-step span {
+            color: var(--nuwa-muted);
+            font-size: 0.82rem;
+        }
+        @media (max-width: 900px) {
+            .nuwa-card-grid,
+            .nuwa-flow {
+                grid-template-columns: 1fr;
+            }
+        }
         </style>
         """,
         unsafe_allow_html=True,
@@ -151,11 +262,10 @@ def render_sidebar() -> None:
         st.text_input("服务地址", value=runtime_url(), key="runtime_url")
         st.text_input("管理密钥", value=admin_token(), type="password", key="admin_token")
         st.markdown("---")
-        st.page_link("streamlit_app.py", label="总览")
-        st.page_link("pages/1_对话调试.py", label="对话调试")
-        st.page_link("pages/2_人格配置.py", label="人格配置")
-        st.page_link("pages/3_质量评测.py", label="质量评测")
-        st.page_link("pages/4_用户记忆.py", label="用户记忆")
+        for group, links in NAV_GROUPS:
+            st.caption(group)
+            for label, path in links:
+                st.page_link(path, label=label)
 
 
 def runtime_url() -> str:
@@ -223,6 +333,55 @@ def status_chip(label: str, tone: str = "ok") -> None:
 
 def section(label: str) -> None:
     st.markdown(f'<div class="nuwa-section">{label}</div>', unsafe_allow_html=True)
+
+
+def hero(title: str, body: str) -> None:
+    st.markdown(
+        f"""
+        <div class="nuwa-hero">
+          <h3>{title}</h3>
+          <p>{body}</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def card_grid(cards: list[tuple[str, str, str]]) -> None:
+    items = []
+    for badge, title, body in cards:
+        items.append(
+            f"""
+            <div class="nuwa-card">
+              <div class="nuwa-card-badge">{badge}</div>
+              <div class="nuwa-card-title">{title}</div>
+              <div class="nuwa-card-body">{body}</div>
+            </div>
+            """
+        )
+    st.markdown(f'<div class="nuwa-card-grid">{"".join(items)}</div>', unsafe_allow_html=True)
+
+
+def lifecycle_flow(active: str = "") -> None:
+    steps = [
+        ("构建", "人格、模型、资源"),
+        ("调试", "预览回复与追踪"),
+        ("评测", "标准考卷与维度分"),
+        ("发布", "灰度、回滚、交接"),
+        ("观测", "调用、延迟、错误"),
+    ]
+    html = []
+    for title, desc in steps:
+        border = "border-color:#93c5fd;" if title == active else ""
+        html.append(
+            f"""
+            <div class="nuwa-flow-step" style="{border}">
+              <strong>{title}</strong>
+              <span>{desc}</span>
+            </div>
+            """
+        )
+    st.markdown(f'<div class="nuwa-flow">{"".join(html)}</div>', unsafe_allow_html=True)
 
 
 def compact_error(exc: Exception) -> str:

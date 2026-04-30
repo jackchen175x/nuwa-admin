@@ -10,8 +10,11 @@ import streamlit as st
 from admin_ui import (
     DIMENSION_LABELS,
     admin_headers,
+    card_grid,
     compact_error,
     format_ms,
+    hero,
+    lifecycle_flow,
     model_label,
     option_label,
     request_json,
@@ -24,6 +27,20 @@ from admin_ui import (
 
 setup_page("质量评测", "标准考卷、批量跑分、历史结果")
 require_admin_token()
+
+hero(
+    "质量评测",
+    "用标准题和维度评分把“像不像老师”变成可追踪结果，支撑每次人格文件改动后的回归验证。",
+)
+lifecycle_flow("评测")
+
+card_grid(
+    [
+        ("单题", "快速验证", "改完人格文件后先跑单题，观察回复和追踪号。"),
+        ("批量", "标准考卷", "全套题覆盖人格一致性、场景贴合、可执行性等维度。"),
+        ("历史", "趋势回看", "比较不同时间、不同模型和不同老师的评测结果。"),
+    ]
+)
 
 DIMENSIONS = tuple(DIMENSION_LABELS.keys())
 

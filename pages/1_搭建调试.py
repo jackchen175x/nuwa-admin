@@ -9,8 +9,11 @@ import streamlit as st
 from admin_ui import (
     FALLBACK_MODELS,
     FALLBACK_PERSONAS,
+    card_grid,
     compact_error,
     format_ms,
+    hero,
+    lifecycle_flow,
     model_label,
     option_label,
     persona_label,
@@ -21,7 +24,7 @@ from admin_ui import (
 )
 
 
-setup_page("对话调试", "验证老师人格、模型参数和接口延迟")
+setup_page("搭建调试", "配置老师能力并实时预览回复效果")
 
 
 def load_personas() -> list[str]:
@@ -49,17 +52,69 @@ with st.sidebar:
 
 if "playground_messages" not in st.session_state:
     st.session_state.playground_messages = []
+if "last_run_meta" not in st.session_state:
+    st.session_state.last_run_meta = {}
 
-meta_cols = st.columns(4)
-meta_cols[0].metric("老师", persona_label(persona))
-meta_cols[1].metric("模型", model_label(model_choice) if model_choice != "默认模型" else "默认")
-meta_cols[2].metric("温度", temperature)
-meta_cols[3].metric("输出", "流式" if use_stream else "同步")
+hero(
+    "调试台",
+    "左侧控制老师、模型和提示词标签，中间预览真实回复，右侧保留运行追踪信息。",
+)
+lifecycle_flow("调试")
 
-section("对话")
-for msg in st.session_state.playground_messages:
-    with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
+metric_cols = st.columns(4)
+metric_cols[0].metric("老师", persona_label(persona))
+metric_cols[1].metric("模型", model_label(model_choice) if model_choice != "默认模型" else "默认")
+metric_cols[2].metric("温度", temperature)
+metric_cols[3].metric("输出", "流式" if use_stream else "同步")
+
+card_grid(
+    [
+        ("老师", persona_label(persona), "当前人格文件决定说话方式、边界和场景策略。"),
+        (
+            "模型",
+            model_label(model_choice) if model_choice != "默认模型" else "默认模型",
+            "默认走线上 persona 配置，临时覆盖只用于调试。",
+        ),
+        ("追踪", "Trace ID", "每次调用返回追踪号，可在观测中心定位延迟和错误。"),
+    ]
+)
+
+left, right = st.columns([1.35, 0.85])
+
+with left:
+    section("对话预览")
+    for msg in st.session_state.playground_messages:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+
+with right:
+    section("运行观测")
+    meta = st.session_state.last_run_meta
+    if meta:
+        meta_cols = st.columns(2)
+        meta_cols[0].metric("追踪号", meta.get("trace_id", "-"))
+        meta_cols[1].metric("耗时", format_ms(meta.get("total_ms") or meta.get("latency_ms")))
+        st.json(
+            {
+                "model": meta.get("model_id"),
+                "thinking_path": meta.get("thinking_path"),
+                "first_token_ms": meta.get("first_token_ms"),
+                "total_ms": meta.get("total_ms"),
+                "latency_ms": meta.get("latency_ms"),
+            },
+            expanded=False,
+        )
+    else:
+        st.caption("发送一条测试消息后显示本轮追踪信息。")
+
+    section("样例问题")
+    examples = [
+        "我最近很焦虑，晚上睡不着。",
+        "我和家里人沟通总是吵架，怎么办？",
+        "请用更像长卿老师的方式回答我。",
+    ]
+    for example in examples:
+        st.code(example, language="text")
 
 
 def payload() -> dict:
@@ -146,22 +201,24 @@ def render_meta(meta: dict) -> None:
 
 if user_msg := st.chat_input("输入要测试的问题"):
     st.session_state.playground_messages.append({"role": "user", "content": user_msg})
-    with st.chat_message("user"):
-        st.markdown(user_msg)
+    with left:
+        with st.chat_message("user"):
+            st.markdown(user_msg)
 
-    with st.chat_message("assistant"):
-        content = ""
-        meta: dict = {}
-        try:
-            if use_stream:
-                content, meta = stream_call()
-            else:
-                with st.spinner("生成中"):
-                    content, meta = sync_call()
-                st.markdown(content)
-            render_meta(meta)
-        except Exception as exc:
-            content = f"调用失败：{compact_error(exc)}"
-            st.error(content)
+        with st.chat_message("assistant"):
+            content = ""
+            meta: dict = {}
+            try:
+                if use_stream:
+                    content, meta = stream_call()
+                else:
+                    with st.spinner("生成中"):
+                        content, meta = sync_call()
+                    st.markdown(content)
+                st.session_state.last_run_meta = meta
+                render_meta(meta)
+            except Exception as exc:
+                content = f"调用失败：{compact_error(exc)}"
+                st.error(content)
 
     st.session_state.playground_messages.append({"role": "assistant", "content": content})

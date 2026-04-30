@@ -8,6 +8,8 @@ import streamlit as st
 from admin_ui import (
     FALLBACK_PERSONAS,
     compact_error,
+    hero,
+    lifecycle_flow,
     option_label,
     persona_label,
     request_json,
@@ -19,6 +21,12 @@ from admin_ui import (
 
 setup_page("用户记忆", "查询与清理用户画像记忆")
 require_admin_token()
+
+hero(
+    "用户记忆",
+    "按用户和老师查看画像记忆，排查个性化回复时能快速确认模型到底记住了什么。",
+)
+lifecycle_flow("构建")
 
 
 def load_personas() -> list[str]:
